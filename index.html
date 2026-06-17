@@ -12,6 +12,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>EBG Group</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
   --bg:#f4f6fa;--surface:#fff;--s2:#f0f2f7;--border:#e2e6ed;--bd2:#c5ccd8;
@@ -169,14 +170,7 @@ tr:hover td{background:var(--bg);}
     <div class="ni" data-p="rel" onclick="go('rel')"><svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Relatórios</div>
     <div class="ni" data-p="com" onclick="go('com')"><svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Comissões</div>
   </nav>
-  <div class="sfooter">
-    Dados salvos no navegador<br>
-    <button onclick="exportarDados()" style="margin-top:6px;background:none;border:1px solid var(--bd2);border-radius:4px;padding:3px 8px;font-size:11px;color:var(--t2);cursor:pointer;width:100%">📤 Exportar dados</button>
-    <label style="margin-top:4px;display:block">
-      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importarDados(this)">
-      <span onclick="document.getElementById('importFile').click()" style="display:block;border:1px solid var(--bd2);border-radius:4px;padding:3px 8px;font-size:11px;color:var(--t2);cursor:pointer;text-align:center;margin-top:4px">📥 Importar dados</span>
-    </label>
-  </div>
+  <div class="sfooter">☁️ Sincronizado em nuvem<br><span style="font-size:10px;color:var(--t3)">Dados em tempo real</span></div>
 </aside>
 
 <div class="main">
@@ -192,6 +186,73 @@ tr:hover td{background:var(--bg);}
 <div class="toast" id="toast"></div>
 
 <script>
+// ── SUPABASE CONFIG ─────────────────────────────────────────────
+const SUPA_URL = 'https://shsgnzdphmoiollvivle.supabase.co';
+const SUPA_KEY = 'sb_publishable_uaEe0hlXptzcV63jdwmSGg_HGBPpNgL';
+let sb = null;
+
+async function initSupabase(){
+  sb = supabase.createClient(SUPA_URL, SUPA_KEY);
+  await setupTables();
+  await loadAll();
+  go('painel');
+}
+
+async function setupTables(){
+  // Criar tabelas se não existirem via insert inicial
+  // As tabelas são criadas via SQL no Supabase
+}
+
+let _clientes=[], _pedidos=[], _itens=[], _parcelas=[];
+
+async function loadAll(){
+  try{
+    const [c,p,it,pa] = await Promise.all([
+      sb.from('clientes').select('*').order('nome'),
+      sb.from('pedidos').select('*').order('created_at',{ascending:false}),
+      sb.from('pedido_itens').select('*'),
+      sb.from('comissao_parcelas').select('*').order('vencimento'),
+    ]);
+    _clientes = c.data||[];
+    _pedidos  = p.data||[];
+    _itens    = it.data||[];
+    _parcelas = pa.data||[];
+  }catch(e){ console.error('Erro ao carregar dados:',e); }
+}
+
+// DB adapter — mesma interface de antes mas usando Supabase
+const DB = {
+  get(k){
+    if(k==='clientes') return _clientes;
+    if(k==='pedidos')  return _pedidos;
+    if(k==='itens')    return _itens;
+    if(k==='parcelas') return _parcelas;
+    return null;
+  },
+  async insert(tabela, dados){
+    const map = {clientes:'clientes',pedidos:'pedidos',itens:'pedido_itens',parcelas:'comissao_parcelas'};
+    const {data,error} = await sb.from(map[tabela]).insert(dados).select();
+    if(error) throw error;
+    await loadAll();
+    return data;
+  },
+  async update(tabela, id, dados){
+    const map = {clientes:'clientes',pedidos:'pedidos',itens:'pedido_itens',parcelas:'comissao_parcelas'};
+    const {error} = await sb.from(map[tabela]).update(dados).eq('id',id);
+    if(error) throw error;
+    await loadAll();
+  },
+  async delete(tabela, id){
+    const map = {clientes:'clientes',pedidos:'pedidos',itens:'pedido_itens',parcelas:'comissao_parcelas'};
+    const {error} = await sb.from(map[tabela]).delete().eq('id',id);
+    if(error) throw error;
+    await loadAll();
+  },
+  // Compatibilidade com código antigo (síncrono)
+  set(k,v){ /* ignorado — Supabase é assíncrono */ },
+  init(){ /* ignorado */ }
+};
+
 // ── DADOS INICIAIS ──────────────────────────────────────────────
 const CLIENTES_INICIAIS = [{"id": "c001", "nome": "Soma Hospitalar", "cnpj": "005.531.725/0001-20", "cidade": "Palhoça", "regiao": "Grande Florianópolis", "canal": "Distribuidor", "contato": "Willana", "tel": "48992150384", "email": "compras@somahospitalar.com.br", "etapa": "Contato feito", "proxAcao": "Retornar contato", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c002", "nome": "Altermed", "cnpj": "000.802.002/0001-02", "cidade": "Rio do Sul", "regiao": "Vale do Itajaí", "canal": "Distribuidor", "contato": "Maurivan", "tel": "47991794874", "email": "compras@altermed.com.br", "etapa": "Contato feito", "proxAcao": "Reunião com Farmarim", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": "Falei com Maicon dia 08/04"}, {"id": "c003", "nome": "Blumed", "cnpj": "17.911.303/0001-69", "cidade": "Blumenau", "regiao": "Vale do Itajaí", "canal": "Distribuidor", "contato": "Dirceu", "tel": "47991638720", "email": "comercia@blumed.com.br", "etapa": "Contato feito", "proxAcao": "Não trabalha com Fisio", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c004", "nome": "VMB", "cnpj": "41.414.934/0001-57", "cidade": "Criciúma", "regiao": "Sul", "canal": "Distribuidor", "contato": "Michel Jorge Siufi", "tel": "48999355862", "email": "vmb@vmbdistribuidora.com.br", "etapa": "Contato feito", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c005", "nome": "Riomed", "cnpj": "82.762.824/0001-63", "cidade": "Rio do Sul", "regiao": "Vale do Itajaí", "canal": "Distribuidor", "contato": "Larissa", "tel": "47984281249", "email": "larissa@novariomed.com.br", "etapa": "Prospecção", "proxAcao": "Sem espaço para novos itens", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c006", "nome": "KFG", "cnpj": "10.646.998/0001-50", "cidade": "Tubarão", "regiao": "Sul", "canal": "Distribuidor", "contato": "Angelino", "tel": "48991788833", "email": "", "etapa": "Prospecção", "proxAcao": "Trabalha com nutrição", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": "Mario e Alex - deixar amostra"}, {"id": "c007", "nome": "Asamed", "cnpj": "07.281.329/0001-17", "cidade": "São José", "regiao": "Grande Florianópolis", "canal": "Distribuidor", "contato": "Andrea", "tel": "48991469346", "email": "compras@asamed.com.br", "etapa": "Contato feito", "proxAcao": "Contato em Maio", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c008", "nome": "Prosaude", "cnpj": "85.247.385/0001-49", "cidade": "Chapecó", "regiao": "Oeste", "canal": "Distribuidor", "contato": "Christiano", "tel": "4999471111", "email": "christianogiordani@gmail.com", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c009", "nome": "Medchap", "cnpj": "00.577.604/0001-03", "cidade": "Chapecó", "regiao": "Oeste", "canal": "Distribuidor", "contato": "Neri", "tel": "4920492400", "email": "sac@medchap.com.br", "etapa": "Prospecção", "proxAcao": "Msg enviada 06/04", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c010", "nome": "Sulmedic", "cnpj": "09.944.371/0001-04", "cidade": "Joinville", "regiao": "Norte", "canal": "Distribuidor", "contato": "Luis", "tel": "4734738845", "email": "sulmedic@sulmedic.com.br", "etapa": "Prospecção", "proxAcao": "Msg 06/05", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c011", "nome": "Assoc. Benef. Santa Terezinha", "cnpj": "86437845/0001-64", "cidade": "Braço do Norte", "regiao": "Sul", "canal": "Hospital", "contato": "Fabiane", "tel": "4899026461", "email": "compras@hospitalsantateresinha.org.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c012", "nome": "Clinigastro", "cnpj": "80084619/0001-60", "cidade": "Criciúma", "regiao": "Sul", "canal": "Hospital", "contato": "", "tel": "", "email": "farmacia@clinigastro.com", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c013", "nome": "Hosp. São João Batista", "cnpj": "83647552/0001-13", "cidade": "Criciúma", "regiao": "Sul", "canal": "Hospital", "contato": "", "tel": "", "email": "compras@hsjb.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c014", "nome": "Hosp. São José", "cnpj": "92736040/0008-90", "cidade": "Criciúma", "regiao": "Sul", "canal": "Hospital", "contato": "Giselle", "tel": "48991722633", "email": "compras@hsjose.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c015", "nome": "Unimed Criciúma", "cnpj": "82996703/0003-48", "cidade": "Criciúma", "regiao": "Sul", "canal": "Hospital", "contato": "Francini", "tel": "48996769201", "email": "farmacia@criciuma.unimedsc.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c016", "nome": "Hospital de Caridade", "cnpj": "83884999/0001-06", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "", "tel": "", "email": "compras2@hospitaldecaridade.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c017", "nome": "Assoc. Benef. Militares SC", "cnpj": "73360539/0013-69", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Amorim", "tel": "48999378865", "email": "farmaciahmpsc@hotmail.com", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c018", "nome": "Casa de Saúde São Sebastião", "cnpj": "80485287/0001-26", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Gleidson", "tel": "4832211095", "email": "compras1@cssaosebastiao.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c019", "nome": "Ilha Hospital", "cnpj": "78269370/0001-16", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "", "tel": "", "email": "farmacia@ilhahospital.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c020", "nome": "Clínica Santa Helena", "cnpj": "95837506/0001-66", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Ricardo", "tel": "48999014751", "email": "compras@clinicasantahelena.med.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c021", "nome": "HEMOSC/CEPON (CNPJ 1)", "cnpj": "86897113/0005-08", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Elisangela/Bruna", "tel": "", "email": "compras.fns@hemosc.org.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c022", "nome": "HEMOSC/CEPON (CNPJ 2)", "cnpj": "86897113/0005-80", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "", "tel": "", "email": "elizandra.lopes@fahece.org.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c023", "nome": "HEMOSC/CEPON (CNPJ 3)", "cnpj": "86897113/0002-38", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "", "tel": "", "email": "elizandra.lopes@fahece.org.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c024", "nome": "Hospital Baía Sul", "cnpj": "1109642/0001-73", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Lydio", "tel": "48984655809", "email": "lydio.lucas@grupobaiasul.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c025", "nome": "Hospital Beira Mar", "cnpj": "29461764/0001-66", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "", "tel": "", "email": "farmacia@hospitalbeiramar.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c026", "nome": "Hospital Baía Sul / Imperial", "cnpj": "11096423/0002-54", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Lydio", "tel": "48984655809", "email": "lydio.lucas@grupobaiasul.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c027", "nome": "Imagem Centro de Diagnóstico", "cnpj": "72366818/0001-33", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Lydio", "tel": "48984655809", "email": "lydio.lucas@grupobaiasul.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c028", "nome": "SOS Cardio", "cnpj": "85307098/0001-87", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Gui", "tel": "48991123509", "email": "compras2@soscardio.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c029", "nome": "Ultralitho Centro Médico", "cnpj": "83205955/0001-02", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Cláudia", "tel": "48991560770", "email": "farmacia@ultralitho.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c030", "nome": "Hospital de Içara", "cnpj": "83852418/0001-54", "cidade": "Içara", "regiao": "Sul", "canal": "Hospital", "contato": "", "tel": "", "email": "farmacia@hsdonato.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c031", "nome": "Soc. Ben. São Camilo - Imbituba", "cnpj": "60975737/0092-99", "cidade": "Imbituba", "regiao": "Sul", "canal": "Hospital", "contato": "Jane/Márcia", "tel": "48999280049", "email": "compras@hsc.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c032", "nome": "Hosp. Ben. Seara do Bem - Lages", "cnpj": "84947167/0001-54", "cidade": "Lages", "regiao": "Serra", "canal": "Hospital", "contato": "", "tel": "", "email": "compras@hisb.org.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c033", "nome": "Clínica Ana Carolina", "cnpj": "80754286/0001-30", "cidade": "Lages", "regiao": "Serra", "canal": "Hospital", "contato": "", "tel": "", "email": "compras@clinicaanacarolina.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c034", "nome": "Hosp. N.S. dos Prazeres - Lages", "cnpj": "84942887/0001-27", "cidade": "Lages", "regiao": "Serra", "canal": "Hospital", "contato": "Stheffany/Luana", "tel": "49991915818", "email": "compras@hnsp.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c035", "nome": "Hosp. São Judas Tadeu - Meleiro", "cnpj": "2160922/0001-91", "cidade": "Meleiro", "regiao": "Sul", "canal": "Hospital", "contato": "", "tel": "", "email": "sueliperuchi17@hotmail.com", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c036", "nome": "Hosp. São Roque - Morro da Fumaça", "cnpj": "86532751/0001-74", "cidade": "Morro da Fumaça", "regiao": "Sul", "canal": "Hospital", "contato": "", "tel": "", "email": "farmaciahsr@contato.net", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c037", "nome": "Fund. Hosp. Santa Otília - Orleans", "cnpj": "85285930/0001-91", "cidade": "Orleans", "regiao": "Sul", "canal": "Hospital", "contato": "", "tel": "", "email": "farmaciafhso@terra.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c038", "nome": "Policlínica São Lucas - Palhoça", "cnpj": "2476488/0001-53", "cidade": "Palhoça", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "", "tel": "", "email": "farmacia@policlinicasaolucas.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c039", "nome": "Hosp. Med. Rural Rio Fortuna", "cnpj": "85878700/0001-36", "cidade": "Rio Fortuna", "regiao": "Sul", "canal": "Hospital", "contato": "", "tel": "", "email": "farmacia.hrf@hotmail.com", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c040", "nome": "Hosp. Bento Cavalheiro - São Joaquim", "cnpj": "86159340/0001-85", "cidade": "São Joaquim", "regiao": "Serra", "canal": "Hospital", "contato": "", "tel": "", "email": "hospitaljoaquim.juliano@gmail.com", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c041", "nome": "Instituto São José", "cnpj": "86186509/0001-96", "cidade": "São José", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "", "tel": "", "email": "farmacia@institutosj.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c042", "nome": "Unimed Grande Florianópolis", "cnpj": "77858611/0014-14", "cidade": "São José", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Josiel/Eduardo", "tel": "48991824533", "email": "josiel.leonardo@unimedflorianopolis.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c043", "nome": "Hosp. Med. Rural São Sebastião", "cnpj": "83249714/0001-65", "cidade": "Treze de Maio", "regiao": "Sul", "canal": "Hospital", "contato": "", "tel": "", "email": "hsaosebastiao@hotmail.com", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c044", "nome": "Hosp. N.S. dos Anjos - Tubarão", "cnpj": "60922168/0053-07", "cidade": "Tubarão", "regiao": "Sul", "canal": "Hospital", "contato": "Rodrigo Catosso", "tel": "19995506488", "email": "compras@hnsc.org.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c045", "nome": "Clínica Pro Vida - Tubarão", "cnpj": "80490618/0001-16", "cidade": "Tubarão", "regiao": "Sul", "canal": "Hospital", "contato": "", "tel": "", "email": "francisco.martins@clinicaprovida.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c046", "nome": "Socimed/Unimed Tubarão", "cnpj": "1595799/0001-79", "cidade": "Tubarão", "regiao": "Sul", "canal": "Hospital", "contato": "Karina", "tel": "4836212540", "email": "karina.aguiar@unimedtubarao.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c047", "nome": "Unimed Tubarão", "cnpj": "85241339/0007-28", "cidade": "Tubarão", "regiao": "Sul", "canal": "Hospital", "contato": "Michelle", "tel": "4836212540", "email": "michelle.pacheco@unimedtubarao.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c048", "nome": "Hosp. São Sebastião - Turvo", "cnpj": "86513124/0001-96", "cidade": "Turvo", "regiao": "Sul", "canal": "Hospital", "contato": "", "tel": "", "email": "farmaciahospitalarhss@hotmail.com", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c049", "nome": "Hosp. N.S. Conceição - Urussanga", "cnpj": "86531803/0001-98", "cidade": "Urussanga", "regiao": "Sul", "canal": "Hospital", "contato": "", "tel": "", "email": "angela.hospital@hotmail.com", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c050", "nome": "IMAS - Hospital Florianópolis", "cnpj": "28700530/0005-95", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Gabrielle", "tel": "47984599597", "email": "compras.hf@imas.net.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c051", "nome": "IMAS - Hospital Regional Araranguá", "cnpj": "28700530/0006-76", "cidade": "Araranguá", "regiao": "Sul", "canal": "Hospital", "contato": "Daniel", "tel": "4835211387", "email": "compras.hra@imas.net.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c052", "nome": "Unimed Criciúma - H. S. João Batista", "cnpj": "82996703/0013-10", "cidade": "Criciúma", "regiao": "Sul", "canal": "Hospital", "contato": "Francini", "tel": "48996769201", "email": "farmacia@criciuma.unimedsc.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c053", "nome": "Beneficência Camiliana do Sul", "cnpj": "83506030/0017-69", "cidade": "Biguaçu", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Jacques", "tel": "48991227761", "email": "compras@hospitalrhn.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c054", "nome": "IDEAS / UPA Bela Vista", "cnpj": "24006302/0002-16", "cidade": "Criciúma", "regiao": "Sul", "canal": "Hospital", "contato": "Tatiana", "tel": "48991616893", "email": "suprimentosideas@ideas.med.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c055", "nome": "IMAS - UPA Bela Vista Palhoça", "cnpj": "24006302/0020-06", "cidade": "Palhoça", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "João", "tel": "4830276160", "email": "jferreira@ideas.med.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c056", "nome": "Hospital da Plástica SC", "cnpj": "10853021/0001-03", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Andréia", "tel": "48999732969", "email": "farmacia@hospitaldaplastica.com", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c057", "nome": "Unimed Tubarão (2)", "cnpj": "85241339/0010-23", "cidade": "Tubarão", "regiao": "Sul", "canal": "Hospital", "contato": "Karina", "tel": "4836212540", "email": "karina.aguiar@unimedtubarao.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c058", "nome": "Hosp. Caridade Imaruí", "cnpj": "84203132/0001-00", "cidade": "Imaruí", "regiao": "Sul", "canal": "Hospital", "contato": "Fábio", "tel": "48999740498", "email": "farmacia@hsjbimarui.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c059", "nome": "São Camilo Imbituba (2)", "cnpj": "60975737/0092-99", "cidade": "Imbituba", "regiao": "Sul", "canal": "Hospital", "contato": "Jane/Márcia", "tel": "48999280049", "email": "compras@hsc.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c060", "nome": "Usuy Médicos Associados", "cnpj": "4004103/0001-80", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Gabriela", "tel": "4899904303", "email": "compras1@usuy.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c061", "nome": "Fundo Estadual de Saúde", "cnpj": "80.673.411/0001-87", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Rosimery", "tel": "48991324109", "email": "", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c062", "nome": "UFSC - Empresa Brasileira", "cnpj": "15.126.437/0001-43", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Elza", "tel": "48984221469", "email": "direcao.dcom@contato.ufsc.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c063", "nome": "Fundo Municipal Florianópolis", "cnpj": "08.935.681/0001-91", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Hospital", "contato": "Patrícia", "tel": "48991581502", "email": "", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c064", "nome": "Cincatarina", "cnpj": "12075748/0001-32", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Distribuidor", "contato": "Angélica", "tel": "4833807877", "email": "angelica@cincatarina.sc.gov.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c065", "nome": "Cisamrec", "cnpj": "13791885/0001-36", "cidade": "Criciúma", "regiao": "Sul", "canal": "Hospital", "contato": "Rock", "tel": "48991651962", "email": "licitacao@cisamrec.sc.gov.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c066", "nome": "Cisamurel", "cnpj": "2715882/0001-05", "cidade": "Tubarão", "regiao": "Sul", "canal": "Consórcio", "contato": "Isabella", "tel": "48991204943", "email": "isabella@cisamurel.sc.gov.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c067", "nome": "Cisamavi", "cnpj": "9069217/0001-22", "cidade": "Rio do Sul", "regiao": "Vale do Itajaí", "canal": "Consórcio", "contato": "Mariani", "tel": "47955074482", "email": "cisamavisaude3@amavi.org.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c068", "nome": "Cisamosc", "cnpj": "1336261/0001-40", "cidade": "Chapecó", "regiao": "Oeste", "canal": "Consórcio", "contato": "Elisa", "tel": "49988491977", "email": "farmacia@cisamosc.sc.gov.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c069", "nome": "Cisamve", "cnpj": "3269965/0001-08", "cidade": "Blumenau", "regiao": "Vale do Itajaí", "canal": "Consórcio", "contato": "Monica", "tel": "4733315818", "email": "gestao.adm@cisamve.sc.gov.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c070", "nome": "Cisnordeste", "cnpj": "84714682/0001-94", "cidade": "Joinville", "regiao": "Norte", "canal": "Consórcio", "contato": "", "tel": "4734229838", "email": "cisnordeste@cisnordeste.sc.gov.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c071", "nome": "BMI Prosper", "cnpj": "14012375/0001-86", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Distribuidor", "contato": "Josiane", "tel": "48991142999", "email": "bmi@bmiprosper.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c072", "nome": "Troika", "cnpj": "32608866/0001-76", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Distribuidor", "contato": "Inildo", "tel": "48991172444", "email": "contato@troikabrasil.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c073", "nome": "Metromed", "cnpj": "83157032/0001-22", "cidade": "Rio do Sul", "regiao": "Vale do Itajaí", "canal": "Distribuidor", "contato": "Ana", "tel": "47999919310", "email": "compras01@metromed.com.br", "etapa": "Contato feito", "proxAcao": "Ligar", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c074", "nome": "NGD Medical", "cnpj": "37513657/0001-62", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Distribuidor", "contato": "Larissa", "tel": "48991701003", "email": "contato@ngdmedical.com.br", "etapa": "Contato feito", "proxAcao": "Não trabalha", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c075", "nome": "Cirúrgica Santa Catarina", "cnpj": "307366050001-06", "cidade": "Araranguá", "regiao": "Sul", "canal": "Distribuidor", "contato": "Thiago Alexandrino", "tel": "48999196989", "email": "comercial@cirurgicasc.com.br", "etapa": "Pedido feito", "proxAcao": "Pedido feito", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c076", "nome": "Lemed", "cnpj": "379931064/0001-16", "cidade": "Itapema", "regiao": "Norte", "canal": "Distribuidor", "contato": "", "tel": "47996995693", "email": "lemed.materiaismedicos@gmail.com", "etapa": "Contato feito", "proxAcao": "Ligar", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c077", "nome": "Balke", "cnpj": "06.103.122/0002-70", "cidade": "Chapecó", "regiao": "Oeste", "canal": "Distribuidor", "contato": "Gabriel", "tel": "49998280011", "email": "compras@ballke.com.br", "etapa": "Contato feito", "proxAcao": "Email 15/04", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c078", "nome": "Clamed", "cnpj": "83.878.476/0001-80", "cidade": "Joinville", "regiao": "Norte", "canal": "Farma", "contato": "", "tel": "", "email": "", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c079", "nome": "Sigel", "cnpj": "27191294/0001-32", "cidade": "Itajaí", "regiao": "Norte", "canal": "Distribuidor", "contato": "", "tel": "4733114441", "email": "contato@sigeldistribuidora.com.br", "etapa": "Contato feito", "proxAcao": "Ligar", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c080", "nome": "JM Stelle", "cnpj": "012155269/0001-58", "cidade": "Balneário Camboriú", "regiao": "Norte", "canal": "Distribuidor", "contato": "", "tel": "47991868085", "email": "", "etapa": "Prospecção", "proxAcao": "Perfumaria", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c081", "nome": "NP Med", "cnpj": "471045400001-83", "cidade": "Palhoça", "regiao": "Grande Florianópolis", "canal": "Distribuidor", "contato": "", "tel": "48999300030", "email": "contato.npmed@gmail.com", "etapa": "Contato feito", "proxAcao": "Ligar", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c082", "nome": "Althis", "cnpj": "13971092/0001/07", "cidade": "Rio do Sul", "regiao": "Vale do Itajaí", "canal": "Distribuidor", "contato": "Vinicius", "tel": "47999580311", "email": "", "etapa": "Contato feito", "proxAcao": "Ligar", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c083", "nome": "Distrilab", "cnpj": "27914706/0001-15", "cidade": "Criciúma", "regiao": "Sul", "canal": "Distribuidor", "contato": "", "tel": "4830455746", "email": "distrilabdistribuidora@gmail.com", "etapa": "Prospecção", "proxAcao": "Ligar", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c084", "nome": "Conquista Medicamentos", "cnpj": "32862687/0001-60", "cidade": "Balneário Camboriú", "regiao": "Norte", "canal": "Distribuidor", "contato": "Bruno", "tel": "47992035570", "email": "compras@conquistamedicamentos.com.br", "etapa": "Prospecção", "proxAcao": "Msg 15/04", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c085", "nome": "Produvale", "cnpj": "03505263/0001-40", "cidade": "Blumenau", "regiao": "Vale do Itajaí", "canal": "Distribuidor", "contato": "", "tel": "4733235244", "email": "produvale@produvale.com.br", "etapa": "Contato feito", "proxAcao": "Não trabalha", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c086", "nome": "Pellegrini", "cnpj": "15953086/0001-44", "cidade": "Tijucas", "regiao": "Grande Florianópolis", "canal": "Distribuidor", "contato": "Luciano", "tel": "", "email": "", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c087", "nome": "Rede Forte", "cnpj": "07677034/0003-26", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Farma", "contato": "Fabricio", "tel": "48988127391", "email": "fabriciooliboni@semprefort.com.br", "etapa": "Contato feito", "proxAcao": "Ligar", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c088", "nome": "Pró Rim", "cnpj": "84689187/0001-40", "cidade": "Joinville", "regiao": "Norte", "canal": "Hospital", "contato": "", "tel": "4734313800", "email": "prorim@prorim.org.br", "etapa": "Contato feito", "proxAcao": "Ligar", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c089", "nome": "Renal Vida", "cnpj": "05748642/0001-97", "cidade": "Blumenau", "regiao": "Vale do Itajaí", "canal": "Hospital", "contato": "Giovana", "tel": "47999754086", "email": "blumenau@renalvida.org.br", "etapa": "Contato feito", "proxAcao": "Ligar", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c090", "nome": "Rede Angeloni", "cnpj": "83.646.984/0001-00", "cidade": "Criciúma", "regiao": "Sul", "canal": "Farma", "contato": "Sergio Gomes", "tel": "", "email": "sergio.gomes@angeloni.com.br", "etapa": "Contato feito", "proxAcao": "Ligar", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c091", "nome": "Trade Medical", "cnpj": "06.555.143/0001-46", "cidade": "Palhoça", "regiao": "Grande Florianópolis", "canal": "Farma", "contato": "", "tel": "4833570307", "email": "apoio@trademedical.com.br", "etapa": "Prospecção", "proxAcao": "Somente material hospitalar", "dataAcao": "", "status": "Em pausa", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c092", "nome": "GC Medicamentos", "cnpj": "21.640.764/0001-11", "cidade": "Araranguá", "regiao": "Sul", "canal": "Distribuidor", "contato": "Conrado", "tel": "48991712359", "email": "comercial@gcmedicamentos.com.br", "etapa": "Contato feito", "proxAcao": "Email 15/04", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c093", "nome": "SC Med", "cnpj": "27.311.107/0001-07", "cidade": "Palmitos", "regiao": "Serra", "canal": "Distribuidor", "contato": "", "tel": "49991982000", "email": "contato@scmed.com.br", "etapa": "Contato feito", "proxAcao": "Medicamentos e saneantes", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c094", "nome": "Cliniflex", "cnpj": "57.147.318/0001-17", "cidade": "Concórdia", "regiao": "Oeste", "canal": "Distribuidor", "contato": "Wagner", "tel": "49988631102", "email": "wagner@cliniflex.com.br", "etapa": "Contato feito", "proxAcao": "Contato 15/04", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": "Falar dia 02/04"}, {"id": "c095", "nome": "Cristal Distribuidora", "cnpj": "92.132.786/0002-08", "cidade": "Palhoça", "regiao": "Grande Florianópolis", "canal": "Distribuidor", "contato": "", "tel": "4833416000", "email": "contato@cristalmed.com.br", "etapa": "Prospecção", "proxAcao": "Email 15/04", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c096", "nome": "Mag Med Distribuidora", "cnpj": "38.453.466/0001-15", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Distribuidor", "contato": "", "tel": "4830255050", "email": "comercial@magmed.com.br", "etapa": "Prospecção", "proxAcao": "Email enviado", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c097", "nome": "Essentia Pharma", "cnpj": "06.354.562/0001-10", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Distribuidor", "contato": "", "tel": "", "email": "meupedido@essentia.com.br", "etapa": "Prospecção", "proxAcao": "Reencaminhei email", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c098", "nome": "Uni Dental", "cnpj": "37.174.971/0001-68", "cidade": "Xanxerê", "regiao": "Oeste", "canal": "Distribuidor", "contato": "Giassana", "tel": "49999770417", "email": "contato@lojaunidental.com.br", "etapa": "Prospecção", "proxAcao": "Msg 15/04", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c099", "nome": "Dental Speed", "cnpj": "13.612.214/0001-60", "cidade": "São José", "regiao": "Grande Florianópolis", "canal": "Distribuidor", "contato": "Viviane", "tel": "4840090999", "email": "viviane.okuda@dentalspeed.com", "etapa": "Prospecção", "proxAcao": "Reenviei email", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c100", "nome": "Boege Med", "cnpj": "42.819.204.0001-07", "cidade": "Joinville", "regiao": "Norte", "canal": "Distribuidor", "contato": "Mauro", "tel": "47997659498", "email": "boege.med@hotmail.com", "etapa": "Prospecção", "proxAcao": "WhatsApp 15/04", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c101", "nome": "Ilha Dental", "cnpj": "85.240.265/0001-10", "cidade": "Florianópolis", "regiao": "Grande Florianópolis", "canal": "Distribuidor", "contato": "Fernando", "tel": "4832252359", "email": "ilhadental@ilhadental.com.br", "etapa": "Prospecção", "proxAcao": "WhatsApp 15/04", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c102", "nome": "Dental Fenix", "cnpj": "09.122.247/0001-55", "cidade": "Blumenau", "regiao": "Vale do Itajaí", "canal": "Distribuidor", "contato": "Taysa", "tel": "47992409168", "email": "compras@dentalfenix.com.br", "etapa": "Pedido feito", "proxAcao": "Já compra Basal", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c103", "nome": "Dental Cremer", "cnpj": "14.190.675/0001-55", "cidade": "Blumenau", "regiao": "Vale do Itajaí", "canal": "Distribuidor", "contato": "", "tel": "47996507956", "email": "atendimento@dentalcremer.com.br", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c104", "nome": "Olimed", "cnpj": "03.033.589/0001-12", "cidade": "Blumenau", "regiao": "Vale do Itajaí", "canal": "Distribuidor", "contato": "Carla", "tel": "47999672318", "email": "carla@olimed.com.br", "etapa": "Prospecção", "proxAcao": "Material Hospitalar Luvas", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c105", "nome": "Mixmed", "cnpj": "41.496.256/0001-19", "cidade": "Criciúma", "regiao": "Sul", "canal": "Distribuidor", "contato": "Vitória", "tel": "48991939892", "email": "contato@mixmedsc.com.br", "etapa": "Prospecção", "proxAcao": "Falei 15/04", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c106", "nome": "Drogasul Distribuidora", "cnpj": "06.140.902/0001-00", "cidade": "Chapecó", "regiao": "Oeste", "canal": "Distribuidor", "contato": "Joceli", "tel": "4933296424", "email": "drogasul@drogasul.med.br", "etapa": "Prospecção", "proxAcao": "Email 15/04", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c107", "nome": "Brum Odontológicos", "cnpj": "59.743.801/0001-90", "cidade": "Blumenau", "regiao": "Vale do Itajaí", "canal": "Distribuidor", "contato": "Taysa", "tel": "47992409168", "email": "compras@dentalfenix.com.br", "etapa": "Prospecção", "proxAcao": "Contato 16/04 e pedido", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c108", "nome": "Medmil Produtos Médicos", "cnpj": "42.930.201/0001-38", "cidade": "Itajaí", "regiao": "Vale do Itajaí", "canal": "Distribuidor", "contato": "", "tel": "33999085702", "email": "distribuidoramedmil@gmail.com", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}, {"id": "c109", "nome": "Pérola Importadora Hospitalar", "cnpj": "30.888.187/0001-72", "cidade": "Camboriú", "regiao": "Vale do Itajaí", "canal": "Distribuidor", "contato": "Pérola", "tel": "47972860350", "email": "perolaimportadora@gmail.com", "etapa": "Prospecção", "proxAcao": "", "dataAcao": "", "status": "Ativo", "valPot": 0, "prob": 0.25, "obs": ""}];
 const PEDIDOS_INICIAIS  = [{"id": "ped001", "num": "PED-20260429-001", "data": "2026-04-29", "clienteId": "c075", "clienteNome": "Cirúrgica Santa Catarina", "clienteCNPJ": "307366050001-06", "clienteCidade": "Araranguá", "canal": "Distribuidor", "contato": "Thiago Alexandrino", "tel": "48999196989", "email": "comercial@cirurgicasc.com.br", "prazo": "30/45/60", "obs": "Frete CIF", "total": 24200, "comissao": 484, "status": "Faturado"}, {"id": "ped002", "num": "PED-20260429-002", "data": "2026-04-29", "clienteId": "c075", "clienteNome": "Cirúrgica Santa Catarina", "clienteCNPJ": "307366050001-06", "clienteCidade": "Araranguá", "canal": "Distribuidor", "contato": "Thiago Alexandrino", "tel": "48999196989", "email": "comercial@cirurgicasc.com.br", "prazo": "30/45/60", "obs": "Frete CIF", "total": 19100, "comissao": 382, "status": "Faturado"}, {"id": "ped003", "num": "PED-20260429-003", "data": "2026-04-29", "clienteId": "c102", "clienteNome": "Dental Fenix", "clienteCNPJ": "09.122.247/0001-55", "clienteCidade": "Blumenau", "canal": "Distribuidor", "contato": "Taysa", "tel": "47992409168", "email": "compras@dentalfenix.com.br", "prazo": "30/45/60", "obs": "Frete CIF", "total": 2777, "comissao": 55, "status": "Faturado"}, {"id": "ped004", "num": "PED-20260429-004", "data": "2026-04-29", "clienteId": "c102", "clienteNome": "Dental Fenix", "clienteCNPJ": "09.122.247/0001-55", "clienteCidade": "Blumenau", "canal": "Distribuidor", "contato": "Taysa", "tel": "47992409168", "email": "compras@dentalfenix.com.br", "prazo": "30/45/60", "obs": "Frete CIF", "total": 2777, "comissao": 55, "status": "Faturado"}, {"id": "ped404", "num": "PED-20260611-404", "data": "2026-06-11", "clienteId": "c075", "clienteNome": "Cirúrgica Santa Catarina", "clienteCNPJ": "307366050001-06", "clienteCidade": "Araranguá", "canal": "Distribuidor", "contato": "Thiago Alexandrino", "tel": "48999196989", "email": "comercial@cirurgicasc.com.br", "prazo": "42/56", "obs": "Frete CIF", "total": 5287.6, "comissao": 105.75, "status": "Faturado"}, {"id": "ped405", "num": "PED-20260611-405", "data": "2026-06-11", "clienteId": "c075", "clienteNome": "Cirúrgica Santa Catarina", "clienteCNPJ": "307366050001-06", "clienteCidade": "Araranguá", "canal": "Distribuidor", "contato": "Thiago Alexandrino", "tel": "48999196989", "email": "comercial@cirurgicasc.com.br", "prazo": "42/56", "obs": "Frete CIF", "total": 10750, "comissao": 215, "status": "Faturado"}];
@@ -273,7 +334,7 @@ function rPainel(){
   const ve=cls.reduce((s,c)=>s+(+c.valPot||0)*(+c.prob||0),0);
   const fat=peds.filter(p=>p.status==='Faturado').reduce((s,p)=>s+(+p.total||0),0);
   const com=peds.filter(p=>p.status==='Faturado').reduce((s,p)=>s+(+p.comissao||0),0);
-  const venc=pars.filter(p=>p.status==='Pendente'&&p.venc&&p.venc<today());
+  const venc=pars.filter(p=>p.status==='Pendente'&&p.vencimento&&p.vencimento<today());
   const fups=cls.filter(c=>c.dataAcao&&c.dataAcao<=today()&&c.status==='Ativo');
   document.getElementById('content').innerHTML=`
   <div class="stats">
@@ -365,21 +426,23 @@ function mCli(id=null){
   </div>`;
   document.body.appendChild(m);
 }
-function sCli(){
-  const ls=DB.get('clientes')||[];
+async function sCli(){
   const nome=v('cn').trim();
   if(!nome){toast('Nome obrigatório','terr');return;}
-  const data={nome,cnpj:v('ccnpj'),cidade:v('ccid'),regiao:v('creg'),canal:v('ccan'),status:v('cst'),contato:v('ccon'),tel:v('ctel'),email:v('ceml'),etapa:v('ceta'),dataAcao:v('cdat'),proxAcao:v('cpax'),valPot:+v('cvp')||0,prob:(+v('cprob')||25)/100,obs:v('cobs')};
-  if(_eCli){const i=ls.findIndex(x=>x.id===_eCli);if(i>=0)ls[i]={...ls[i],...data};}
-  else ls.push({id:uid(),...data});
-  DB.set('clientes',ls);
-  document.querySelector('.mbg')?.remove();
-  _rCRM();toast(_eCli?'Cliente atualizado ✓':'Cliente cadastrado ✓','tok');
+  const data={nome,cnpj:v('ccnpj'),cidade:v('ccid'),regiao:v('creg'),canal:v('ccan'),status:v('cst'),contato:v('ccon'),tel:v('ctel'),email:v('ceml'),etapa:v('ceta'),dataAcao:v('cdat')||null,proxAcao:v('cpax'),valPot:+v('cvp')||0,prob:(+v('cprob')||25)/100,obs:v('cobs')};
+  try{
+    if(_eCli){ await DB.update('clientes',_eCli,data); }
+    else{ await DB.insert('clientes',[{id:uid(),...data}]); }
+    document.querySelector('.mbg')?.remove();
+    _rCRM();toast(_eCli?'Cliente atualizado ✓':'Cliente cadastrado ✓','tok');
+  }catch(e){toast('Erro: '+e.message,'terr');}
 }
-function dCli(id){
+async function dCli(id){
   if(!confirm('Excluir este cliente?'))return;
-  DB.set('clientes',(DB.get('clientes')||[]).filter(c=>c.id!==id));
-  _rCRM();toast('Cliente removido');
+  try{
+    await DB.delete('clientes',id);
+    _rCRM();toast('Cliente removido');
+  }catch(e){toast('Erro: '+e.message,'terr');}
 }
 
 // ── ORÇAMENTO ──────────────────────────────────────────────────
@@ -503,28 +566,32 @@ function gNum(){
   return`PED-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${String(max+1).padStart(3,'0')}`;
 }
 
-function sPed(){
+async function sPed(){
   const cli=(DB.get('clientes')||[]).find(c=>c.id===ORC.cliId);
   if(!cli){toast('Selecione um cliente','terr');return;}
   const val=ORC.items.filter(i=>i.prod&&i.cx>0);
   if(!val.length){toast('Adicione ao menos um produto','terr');return;}
   let tot=0,com=0;
+  const num=gNum();const pedId=uid();
   const itens=val.map((item,idx)=>{
     const p=PRODS.find(x=>x.chave===item.prod);
     const tUn=item.cx*p.cx;const tIt=tUn*item.preco;
     tot+=tIt;com+=tIt*COMISSAO_PCT;
-    return{pedId:'',n:idx+1,chave:p.chave,nome:p.nome,ml:p.ml,cx:p.cx,qtdCx:item.cx,totUn:tUn,preco:item.preco,totIt:tIt,comIt:tIt*0.02};
+    return{id:uid(),pedId,n:idx+1,chave:p.chave,nome:p.nome,ml:p.ml,cx:p.cx,qtdCx:item.cx,totUn:tUn,preco:item.preco,totIt:tIt,comIt:tIt*COMISSAO_PCT};
   });
-  const num=gNum();
-  const ped={id:uid(),num,data:today(),clienteId:cli.id,clienteNome:cli.nome,clienteCNPJ:cli.cnpj,clienteCidade:cli.cidade,canal:cli.canal,contato:cli.contato,tel:cli.tel,email:cli.email,prazo:ORC.prazo,obs:ORC.frete,total:tot,comissao:com,status:ORC.status};
-  const peds=DB.get('pedidos')||[];peds.unshift(ped);DB.set('pedidos',peds);
-  const allIt=DB.get('itens')||[];itens.forEach(it=>allIt.push({...it,pedId:ped.id}));DB.set('itens',allIt);
+  const ped={id:pedId,num,data:today(),clienteId:cli.id,clienteNome:cli.nome,clienteCNPJ:cli.cnpj,clienteCidade:cli.cidade,canal:cli.canal,contato:cli.contato,tel:cli.tel,email:cli.email,prazo:ORC.prazo,obs:ORC.frete,total:tot,comissao:com,status:ORC.status};
   const partes=ORC.prazo.split('/').map(x=>parseInt(x.trim())).filter(x=>!isNaN(x));
-  const cP=com/partes.length;const allP=DB.get('parcelas')||[];const base=new Date();
-  partes.forEach((d,i)=>{const vd=new Date(base);vd.setDate(vd.getDate()+d);allP.push({id:uid(),pedId:ped.id,pedNum:num,clienteNome:cli.nome,n:i+1,venc:vd.toISOString().slice(0,10),valor:+cP.toFixed(2),status:'Pendente'});});
-  DB.set('parcelas',allP);
-  toast(`Pedido ${num} salvo! ✓`,'tok');
-  lOrc();go('hist');
+  const cP=com/partes.length;const base=new Date();
+  const pars=partes.map((d,i)=>{const vd=new Date(base);vd.setDate(vd.getDate()+d);return{id:uid(),pedId,pedNum:num,clienteNome:cli.nome,n:i+1,vencimento:vd.toISOString().slice(0,10),valor:+cP.toFixed(2),status:'Pendente'};});
+  try{
+    toast('Salvando...','tinfo');
+    await sb.from('pedidos').insert(ped);
+    await sb.from('pedido_itens').insert(itens);
+    await sb.from('comissao_parcelas').insert(pars);
+    await loadAll();
+    toast(`Pedido ${num} salvo! ✓`,'tok');
+    lOrc();go('hist');
+  }catch(e){toast('Erro ao salvar: '+e.message,'terr');}
 }
 
 // ── PDF ORÇAMENTO ──────────────────────────────────────────────
@@ -670,7 +737,7 @@ function _rHist(){
 }
 function vPed(id){
   const ped=(DB.get('pedidos')||[]).find(p=>p.id===id);
-  const its=(DB.get('itens')||[]).filter(i=>i.pedId===id);
+  const its=(DB.get('itens')||[]).filter(i=>i.pedId===id||i['pedId']===id);
   const m=document.createElement('div');m.className='mbg';
   m.innerHTML=`<div class="modal">
     <div class="mh"><h2>${ped.num}</h2><button class="mx" onclick="this.closest('.mbg').remove()">×</button></div>
@@ -692,19 +759,23 @@ function vPed(id){
   </div>`;
   document.body.appendChild(m);
 }
-function mStatus(id,atual){
+async function mStatus(id,atual){
   const novo=prompt('Novo status:\n'+STATUSPED.join(' / '),atual);
   if(!novo||!STATUSPED.includes(novo))return;
-  const peds=DB.get('pedidos')||[];const i=peds.findIndex(p=>p.id===id);
-  if(i>=0)peds[i].status=novo;DB.set('pedidos',peds);
-  _rHist();toast('Status atualizado ✓','tok');
+  try{
+    await DB.update('pedidos',id,{status:novo});
+    _rHist();toast('Status atualizado ✓','tok');
+  }catch(e){toast('Erro: '+e.message,'terr');}
 }
-function dPed(id){
+async function dPed(id){
   if(!confirm('Excluir este pedido?'))return;
-  DB.set('pedidos',(DB.get('pedidos')||[]).filter(p=>p.id!==id));
-  DB.set('itens',(DB.get('itens')||[]).filter(i=>i.pedId!==id));
-  DB.set('parcelas',(DB.get('parcelas')||[]).filter(p=>p.pedId!==id));
-  _rHist();toast('Pedido removido');
+  try{
+    await sb.from('pedido_itens').delete().eq('pedId',id);
+    await sb.from('comissao_parcelas').delete().eq('pedId',id);
+    await sb.from('pedidos').delete().eq('id',id);
+    await loadAll();
+    _rHist();toast('Pedido removido');
+  }catch(e){toast('Erro: '+e.message,'terr');}
 }
 
 // ── RELATÓRIOS ─────────────────────────────────────────────────
@@ -748,7 +819,7 @@ function rCom(){
   const pars=DB.get('parcelas')||[];
   const tdh=today();
   const venc=pars.filter(p=>p.status==='Pendente'&&p.venc&&p.venc<tdh);
-  const aV=pars.filter(p=>p.status==='Pendente'&&p.venc&&p.venc>=tdh).sort((a,b)=>a.venc.localeCompare(b.venc));
+  const aV=pars.filter(p=>p.status==='Pendente'&&p.venc&&p.venc>=tdh).sort((a,b)=>a.vencimento?.localeCompare(b.vencimento));
   const rec=pars.filter(p=>p.status==='Recebida');
   const tP=pars.filter(p=>p.status==='Pendente').reduce((s,p)=>s+(+p.valor||0),0);
   const tR=rec.reduce((s,p)=>s+(+p.valor||0),0);
@@ -763,7 +834,7 @@ function rCom(){
     <div class="tw"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Vencimento</th><th>Valor</th><th></th></tr></thead>
     <tbody>${venc.map(p=>`<tr>
       <td style="font-family:monospace;font-size:10px">${p.pedNum}</td><td>${p.clienteNome}</td>
-      <td style="color:var(--rd)">${fD(p.venc)}</td>
+      <td style="color:var(--rd)">${fD(p.vencimento)}</td>
       <td style="font-weight:600">R$${R(p.valor)}</td>
       <td><button class="btn bg_ bxs" onclick="rcb('${p.id}')">Recebida ✓</button></td>
     </tr>`).join('')}</tbody></table></div>
@@ -772,10 +843,10 @@ function rCom(){
     <div class="ch"><span class="ct">Próximos Vencimentos</span></div>
     ${aV.length===0?'<div class="empty"><p>Nenhuma parcela a vencer</p></div>':
     `<div class="tw"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Parcela</th><th>Vencimento</th><th>Dias</th><th>Valor</th><th></th></tr></thead>
-    <tbody>${aV.map(p=>{const dias=Math.ceil((new Date(p.venc)-new Date())/86400000);
+    <tbody>${aV.map(p=>{const dias=Math.ceil((new Date(p.vencimento)-new Date())/86400000);
     return`<tr>
       <td style="font-family:monospace;font-size:10px">${p.pedNum}</td><td>${p.clienteNome}</td>
-      <td style="font-size:11px">Parc. ${p.n}</td><td>${fD(p.venc)}</td>
+      <td style="font-size:11px">Parc. ${p.n}</td><td>${fD(p.vencimento)}</td>
       <td><span class="badge ${dias<=7?'brd':dias<=15?'bam':'bgr'}">${dias}d</span></td>
       <td style="font-weight:600">R$${R(p.valor)}</td>
       <td><button class="btn bg_ bxs" onclick="rcb('${p.id}')">Recebida ✓</button></td>
@@ -785,10 +856,11 @@ function rCom(){
     <tbody>${rec.map(p=>`<tr style="opacity:.55"><td style="font-family:monospace;font-size:10px">${p.pedNum}</td><td>${p.clienteNome}</td><td>Parc. ${p.n}</td><td>R$${R(p.valor)}</td></tr>`).join('')}</tbody></table></div></div>`:''}
   </div>`;
 }
-function rcb(id){
-  const pars=DB.get('parcelas')||[];const i=pars.findIndex(p=>p.id===id);
-  if(i>=0){pars[i].status='Recebida';pars[i].dataRec=today();}
-  DB.set('parcelas',pars);rCom();toast('Comissão recebida marcada ✓','tok');
+async function rcb(id){
+  try{
+    await sb.from('comissao_parcelas').update({status:'Recebida',data_recebimento:today()}).eq('id',id);
+    await loadAll();rCom();toast('Comissão recebida marcada ✓','tok');
+  }catch(e){toast('Erro: '+e.message,'terr');}
 }
 
 // ── INIT ───────────────────────────────────────────────────────
@@ -831,8 +903,9 @@ function importarDados(input){
   input.value='';
 }
 
-DB.init();
-go('painel');
+// Mostrar loading
+document.getElementById('content').innerHTML='<div class="empty"><p>Conectando ao banco de dados...</p><span>Aguarde um momento</span></div>';
+initSupabase();
 </script>
 </body>
 </html>
