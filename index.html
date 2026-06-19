@@ -21,6 +21,7 @@
   
   <title>Basal Group</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     /* Mesmo estilo do anterior - mantido */
     :root{
@@ -227,18 +228,11 @@
       </div>
     </nav>
     <div class="sfooter">
-    <div style="margin-bottom:4px;font-size:10px;color:var(--t3)">💾 Dados salvos online</div>
-    <a href="https://eliasbatisti-hash.github.io/ebggroup" target="_blank"
-       style="display:block;background:var(--ac);color:#fff;padding:4px 8px;border-radius:4px;font-size:10px;text-align:center;text-decoration:none;margin-top:4px">
-      🌐 Link do Sistema
-    </a>
-    <button onclick="exportarDados()" style="width:100%;margin-top:4px;background:none;border:1px solid var(--bd2);border-radius:4px;padding:3px 8px;font-size:10px;color:var(--t2);cursor:pointer">📤 Exportar Backup</button>
-    <label style="display:block;margin-top:4px">
-      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importarDados(this)">
-      <span onclick="document.getElementById('importFile').click()" style="display:block;border:1px solid var(--bd2);border-radius:4px;padding:3px 8px;font-size:10px;color:var(--t2);text-align:center;cursor:pointer">📥 Importar Backup</span>
-    </label>
-  </div>
-</aside>
+      <button onclick="exportarDados()">📤 Exportar</button>
+      <label><input type="file" id="importFile" accept=".json" style="display:none" onchange="importarDados(this)"><span onclick="document.getElementById('importFile').click()">📥 Importar</span></label>
+      <div style="font-size:8px;color:var(--t3);margin-top:4px;text-align:center;">Dados salvos automaticamente</div>
+    </div>
+  </aside>
 
   <div class="main">
     <div class="topbar">
@@ -427,34 +421,96 @@ const LOG_BASE = [
 ];
 
 // ================================================================
-// BANCO DE DADOS - localStorage
+// BANCO DE DADOS - SUPABASE (nuvem, sincronizado entre dispositivos)
 // ================================================================
-const STORAGE_KEY = 'basal_app_completo';
+const SUPA_URL = 'https://shsgnzdphmoiollvivle.supabase.co';
+const SUPA_KEY = 'sb_publishable_uaEe0hlXptzcV63jdwmSGg_HGBPpNgL';
+let sb = null;
 
-function getData(store) {
-  try {
-    const all = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    return all[store] || [];
-  } catch(e) {
-    return [];
-  }
+// Cache local em memória (sincronizado com Supabase) — permite as funções
+// getData/setData continuarem síncronas como no código original.
+let _cache = { clientes: [], pedidos: [], itens: [], parcelas: [] };
+
+const TABLE_MAP = { clientes:'clientes', pedidos:'pedidos', itens:'pedido_itens', parcelas:'comissao_parcelas' };
+
+async function loadAllFromCloud(){
+  const [c,p,it,pa] = await Promise.all([
+    sb.from('clientes').select('*').order('nome'),
+    sb.from('pedidos').select('*').order('created_at',{ascending:false}),
+    sb.from('pedido_itens').select('*'),
+    sb.from('comissao_parcelas').select('*'),
+  ]);
+  if(c.error) console.error('Erro clientes:', c.error);
+  if(p.error) console.error('Erro pedidos:', p.error);
+  if(it.error) console.error('Erro itens:', it.error);
+  if(pa.error) console.error('Erro parcelas:', pa.error);
+  _cache.clientes = (c.data||[]).map(normalizeCliente);
+  _cache.pedidos  = (p.data||[]).map(normalizePedido);
+  _cache.itens    = (it.data||[]).map(normalizeItem);
+  _cache.parcelas = (pa.data||[]).map(normalizeParcela);
 }
 
+// Normaliza nomes de coluna do Postgres (minúsculas) para o formato camelCase usado no app
+function normalizeCliente(c){
+  return {...c, proxAcao:c.proxacao??c.proxAcao, dataAcao:c.dataacao??c.dataAcao, valPot:c.valpot??c.valPot};
+}
+function normalizePedido(p){
+  return {...p, clienteId:p.clienteid??p.clienteId, clienteNome:p.clientenome??p.clienteNome, clienteCNPJ:p.clientecnpj??p.clienteCNPJ, clienteCidade:p.clientecidade??p.clienteCidade};
+}
+function normalizeItem(i){
+  return {...i, pedId:i.pedid??i.pedId, qtdCx:i.qtdcx??i.qtdCx, totUn:i.totun??i.totUn, totIt:i.totit??i.totIt, comIt:i.comit??i.comIt};
+}
+function normalizeParcela(p){
+  return {...p, pedId:p.pedid??p.pedId, pedNum:p.pednum??p.pedNum, clienteNome:p.clientenome??p.clienteNome, venc:p.vencimento??p.venc};
+}
+
+// Converte de volta para o formato de colunas do banco antes de enviar
+function denormalizeCliente(c){
+  const {proxAcao,dataAcao,valPot,...rest} = c;
+  return {...rest, proxacao:proxAcao, dataacao:dataAcao||null, valpot:valPot};
+}
+function denormalizePedido(p){
+  const {clienteId,clienteNome,clienteCNPJ,clienteCidade,...rest} = p;
+  return {...rest, clienteid:clienteId, clientenome:clienteNome, clientecnpj:clienteCNPJ, clientecidade:clienteCidade};
+}
+function denormalizeItem(i){
+  const {pedId,qtdCx,totUn,totIt,comIt,...rest} = i;
+  return {...rest, pedid:pedId, qtdcx:qtdCx, totun:totUn, totit:totIt, comit:comIt};
+}
+function denormalizeParcela(p){
+  const {pedId,pedNum,clienteNome,venc,...rest} = p;
+  return {...rest, pedid:pedId, pednum:pedNum, clientenome:clienteNome, vencimento:venc||rest.vencimento};
+}
+
+function getData(store) {
+  return _cache[store] || [];
+}
+
+// setData agora dispara gravação no Supabase em background, mas atualiza
+// o cache local IMEDIATAMENTE para a UI responder na hora.
 function setData(store, data) {
-  try {
-    const all = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    all[store] = data;
-    const json = JSON.stringify(all);
-    localStorage.setItem(STORAGE_KEY, json);
-    const verify = localStorage.getItem(STORAGE_KEY);
-    if(!verify) throw new Error('Dado não foi salvo');
-    showBackupIndicator(true);
-    return true;
-  } catch(e) {
-    console.error('Erro ao salvar:', e);
-    toast('⚠️ Erro ao salvar: '+e.message,'terr');
-    return false;
+  _cache[store] = data;
+  showBackupIndicator(true);
+  syncStoreToCloud(store, data).catch(e=>{
+    console.error('Erro ao sincronizar', store, e);
+    toast('⚠️ Erro ao salvar na nuvem: '+e.message,'terr');
+  });
+  return true;
+}
+
+// Sincroniza um array inteiro com a tabela do Supabase (upsert + delete dos removidos)
+async function syncStoreToCloud(store, data){
+  const table = TABLE_MAP[store];
+  if(!table || !sb) return;
+  const denorm = store==='clientes'?denormalizeCliente:store==='pedidos'?denormalizePedido:store==='itens'?denormalizeItem:denormalizeParcela;
+  if(data.length===0){
+    // Apaga tudo da tabela (raro, mas possível em reset)
+    await sb.from(table).delete().neq('id','___none___');
+    return;
   }
+  const rows = data.map(denorm);
+  const {error} = await sb.from(table).upsert(rows, {onConflict:'id'});
+  if(error) throw error;
 }
 
 function addData(store, item) {
@@ -463,73 +519,58 @@ function addData(store, item) {
   setData(store, data);
 }
 
-function updateData(store, id, newData) {
+async function updateData(store, id, newData) {
   const data = getData(store);
   const idx = data.findIndex(item => item.id === id);
   if (idx >= 0) {
     data[idx] = { ...data[idx], ...newData };
-    setData(store, data);
+    _cache[store] = data;
+    showBackupIndicator(true);
+    const table = TABLE_MAP[store];
+    const denorm = store==='clientes'?denormalizeCliente:store==='pedidos'?denormalizePedido:store==='itens'?denormalizeItem:denormalizeParcela;
+    try{
+      const {error} = await sb.from(table).update(denorm(data[idx])).eq('id', id);
+      if(error) throw error;
+    }catch(e){
+      console.error('Erro ao atualizar', store, e);
+      toast('⚠️ Erro ao salvar: '+e.message,'terr');
+    }
     return true;
   }
   return false;
 }
 
-function deleteData(store, id) {
-  const data = getData(store);
-  setData(store, data.filter(item => item.id !== id));
+async function deleteData(store, id) {
+  _cache[store] = getData(store).filter(item => item.id !== id);
+  showBackupIndicator(true);
+  const table = TABLE_MAP[store];
+  try{
+    const {error} = await sb.from(table).delete().eq('id', id);
+    if(error) throw error;
+  }catch(e){
+    console.error('Erro ao excluir', store, e);
+    toast('⚠️ Erro ao excluir: '+e.message,'terr');
+  }
 }
 
-function initData() {
-  // Verifica se já tem dados
+async function initData() {
+  // Carrega tudo da nuvem primeiro
+  await loadAllFromCloud();
   const existing = getData('clientes');
   if (existing && existing.length > 0) {
-    console.log('✅ Dados já existem:', existing.length, 'clientes');
+    console.log('✅ Dados carregados da nuvem:', existing.length, 'clientes');
     return;
   }
-  
-  // Tenta recuperar dados antigos
-  console.log('🔄 Tentando recuperar dados antigos...');
-  let dadosRecuperados = false;
-  
-  // Tenta várias fontes
-  const fontes = [
-    'basal_app_data', 'basal_app_final', 'basal_app_completo',
-    'basal1_clientes', 'ebg1_clientes'
-  ];
-  
-  for (const key of fontes) {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // Se for um array de clientes
-          setData('clientes', parsed);
-          dadosRecuperados = true;
-          console.log('✅ Clientes recuperados de:', key, parsed.length);
-          break;
-        } else if (parsed.clientes && parsed.clientes.length > 0) {
-          // Se for o objeto completo
-          setData('clientes', parsed.clientes);
-          if (parsed.pedidos) setData('pedidos', parsed.pedidos);
-          if (parsed.itens) setData('itens', parsed.itens);
-          if (parsed.parcelas) setData('parcelas', parsed.parcelas);
-          dadosRecuperados = true;
-          console.log('✅ Dados completos recuperados de:', key);
-          break;
-        }
-      }
-    } catch(e) {}
-  }
-  
-  // Se não recuperou, usa os dados completos
-  if (!dadosRecuperados) {
-    console.log('📦 Usando dados iniciais completos...');
-    setData('clientes', CLIENTES_COMPLETOS);
-    setData('pedidos', PEDIDOS_INICIAIS);
-    setData('itens', ITENS_INICIAIS);
-    setData('parcelas', PARCELAS_INICIAIS);
-  }
+  // Nuvem vazia (primeira vez) — popular com dados iniciais
+  console.log('📦 Nuvem vazia. Enviando dados iniciais...');
+  const itensComPedId = ITENS_INICIAIS.map(i => ({...i, pedId: i.pedId}));
+  const parcelasComPedId = PARCELAS_INICIAIS.map(p => ({...p}));
+  await sb.from('clientes').upsert(CLIENTES_COMPLETOS.map(denormalizeCliente), {onConflict:'id'});
+  await sb.from('pedidos').upsert(PEDIDOS_INICIAIS.map(denormalizePedido), {onConflict:'id'});
+  await sb.from('pedido_itens').upsert(itensComPedId.map(denormalizeItem), {onConflict:'id'});
+  await sb.from('comissao_parcelas').upsert(parcelasComPedId.map(denormalizeParcela), {onConflict:'id'});
+  await loadAllFromCloud();
+  console.log('✅ Dados iniciais enviados para a nuvem:', getData('clientes').length, 'clientes');
 }
 
 // ================================================================
@@ -896,6 +937,12 @@ function savePedido(){
       peds[idx]=ped;
       setData('pedidos', peds);
       
+      // Apaga itens e parcelas antigas deste pedido na nuvem antes de gravar os novos
+      if(sb){
+        sb.from('pedido_itens').delete().eq('pedid', ORC_ID).then(()=>{}).catch(e=>console.error(e));
+        sb.from('comissao_parcelas').delete().eq('pedid', ORC_ID).then(()=>{}).catch(e=>console.error(e));
+      }
+
       let allIt = getData('itens');
       allIt = allIt.filter(i=>i.pedId!==ORC_ID);
       itens.forEach(it=>{it.pedId=ORC_ID; allIt.push(it);});
@@ -1092,6 +1139,10 @@ function delPedido(id){
   setData('itens', itens);
   let parcelas = getData('parcelas').filter(p=>p.pedId!==id);
   setData('parcelas', parcelas);
+  if(sb){
+    sb.from('pedido_itens').delete().eq('pedid', id).then(()=>{}).catch(e=>console.error(e));
+    sb.from('comissao_parcelas').delete().eq('pedid', id).then(()=>{}).catch(e=>console.error(e));
+  }
   _renderHist();toast('Removido');
 }
 
@@ -1361,74 +1412,38 @@ if('serviceWorker' in navigator){
 // ================================================================
 // INIT
 // ================================================================
-
-// ================================================================
-// EXPORTAR / IMPORTAR BACKUP
-// ================================================================
-function exportarDados(){
-  const all = JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');
-  all.exportadoEm = new Date().toISOString();
-  const blob = new Blob([JSON.stringify(all,null,2)],{type:'application/json'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'Basal_Backup_'+today()+'.json';
-  a.click();
-  toast('Backup exportado! ✓','tok');
-}
-
-function importarDados(input){
-  const file = input.files[0]; if(!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try{
-      const dados = JSON.parse(e.target.result);
-      if(!dados.clientes) throw new Error('Arquivo inválido');
-      if(!confirm('Importar backup? Os dados atuais serão substituídos.')) return;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(dados));
-      toast('Backup importado! Recarregando...','tok');
-      setTimeout(()=>location.reload(),1000);
-    }catch(err){ toast('Erro: arquivo inválido','terr'); }
-  };
-  reader.readAsText(file);
-  input.value='';
-}
-
-function initApp() {
+async function initApp() {
   console.log('🚀 Iniciando aplicativo completo...');
 
   document.documentElement.style.setProperty('--safe-bottom',
     window.navigator.userAgent.includes('iPhone') ? '20px' : '0px'
   );
 
-  // Testar se localStorage funciona
+  // Mostrar tela de carregamento enquanto conecta na nuvem
+  document.getElementById('content').innerHTML = `
+    <div style="padding:60px 20px;text-align:center;color:var(--t3)">
+      <div style="font-size:36px;margin-bottom:12px">☁️</div>
+      <p>Conectando à nuvem...</p>
+    </div>`;
+
   try {
-    localStorage.setItem('_test_', '1');
-    if(localStorage.getItem('_test_') !== '1') throw new Error('não persistiu');
-    localStorage.removeItem('_test_');
+    sb = supabase.createClient(SUPA_URL, SUPA_KEY);
+    await initData();
   } catch(e) {
-    // localStorage não funciona — mostrar aviso
+    console.error('Erro ao conectar Supabase:', e);
     document.getElementById('content').innerHTML = `
       <div style="padding:40px 20px;text-align:center;max-width:480px;margin:0 auto">
         <div style="font-size:48px;margin-bottom:16px">⚠️</div>
-        <h2 style="color:#991b1b;margin-bottom:12px">Sistema precisa ser acessado online</h2>
-        <p style="color:#4a5568;line-height:1.7;margin-bottom:20px">
-          Para os dados serem salvos corretamente, acesse pelo link abaixo.<br>
-          Salve nos <strong>favoritos</strong> do celular e computador.
-        </p>
-        <a href="https://eliasbatisti-hash.github.io/ebggroup"
-           style="display:block;background:#1a56db;color:#fff;padding:14px 24px;border-radius:10px;font-weight:700;font-size:15px;text-decoration:none;margin-bottom:10px">
-          🌐 Abrir Sistema Online
-        </a>
-        <p style="font-size:11px;color:#7a8699">https://eliasbatisti-hash.github.io/ebggroup</p>
+        <h2 style="color:#991b1b;margin-bottom:12px">Erro de conexão</h2>
+        <p style="color:#4a5568;line-height:1.7">Não foi possível conectar ao banco de dados. Verifique sua internet e recarregue a página.</p>
+        <p style="font-size:11px;color:#7a8699;margin-top:12px">${e.message}</p>
       </div>`;
     return;
   }
 
-  initData();
   const clientes = getData('clientes');
-  console.log('📊 Clientes:', clientes.length);
-  if(clientes.length > 0) toast(`✅ ${clientes.length} clientes carregados!`, 'tok');
-  else toast('⚠️ Nenhum cliente. Recarregue.', 'terr');
+  console.log('📊 Clientes carregados:', clientes.length);
+  toast(clientes.length > 0 ? `✅ ${clientes.length} clientes carregados da nuvem!` : '⚠️ Nenhum cliente encontrado.', clientes.length>0?'tok':'terr');
 
   go('painel');
   setTimeout(() => showBackupIndicator(true), 1000);
