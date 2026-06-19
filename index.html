@@ -6,12 +6,12 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Basal Group">
+  <meta name="apple-mobile-web-app-title" content="Basal Aplicativo">
   <meta name="theme-color" content="#1a56db">
   
   <link rel="manifest" href="data:application/json,{
-    &quot;name&quot;:&quot;Basal Group - Gestão Comercial&quot;,
-    &quot;short_name&quot;:&quot;Basal&quot;,
+    &quot;name&quot;:&quot;Basal Aplicativo - Gestão Comercial&quot;,
+    &quot;short_name&quot;:&quot;Basal Aplicativo&quot;,
     &quot;start_url&quot;:&quot;.&quot;,
     &quot;display&quot;:&quot;standalone&quot;,
     &quot;orientation&quot;:&quot;portrait&quot;,
@@ -19,7 +19,7 @@
     &quot;theme_color&quot;:&quot;#1a56db&quot;
   }">
   
-  <title>Basal Group</title>
+  <title>Basal Aplicativo</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
@@ -1051,7 +1051,7 @@ function pdfOrc(){
   doc.text('⚠ Este orçamento tem validade de 15 dias.',mg+3,y+5);
   doc.text('Para aprovação, entre em contato com o representante.',mg+3,y+10);
   y+=18;doc.setFontSize(7);doc.setTextColor(150,160,175);
-  doc.text('rbmedmat@gmail.com  |  (48) 99610-0303  |  Basal Group',W/2,y,{align:'center'});
+  doc.text('rbmedmat@gmail.com  |  (48) 99610-0303  |  Basal Aplicativo',W/2,y,{align:'center'});
   doc.save(`Basal_Orcamento_${cli.nome.replace(/\s+/g,'_')}_${today()}.pdf`);
   toast('PDF baixado! ✓','tok');
 }
