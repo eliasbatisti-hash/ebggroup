@@ -901,7 +901,7 @@ function genNum(){
   return`PED-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${String(max+1).padStart(3,'0')}`;
 }
 
-function savePedido(){
+async function savePedido(){
   const cli=getData('clientes').find(c=>c.id===ORC.cliId);
   if(!cli){toast('Selecione um cliente','terr');return;}
   const val=ORC.items.filter(i=>i.prod&&i.cx>0);
@@ -937,10 +937,13 @@ function savePedido(){
       peds[idx]=ped;
       setData('pedidos', peds);
       
-      // Apaga itens e parcelas antigas deste pedido na nuvem antes de gravar os novos
+      // Garante que o pedido foi gravado na nuvem ANTES de mexer em itens/parcelas
       if(sb){
-        sb.from('pedido_itens').delete().eq('pedid', ORC_ID).then(()=>{}).catch(e=>console.error(e));
-        sb.from('comissao_parcelas').delete().eq('pedid', ORC_ID).then(()=>{}).catch(e=>console.error(e));
+        try{
+          await sb.from('pedidos').upsert([denormalizePedido(ped)], {onConflict:'id'});
+          await sb.from('pedido_itens').delete().eq('pedid', ORC_ID);
+          await sb.from('comissao_parcelas').delete().eq('pedid', ORC_ID);
+        }catch(e){ console.error('Erro ao sincronizar pedido:', e); toast('⚠️ Erro ao sincronizar: '+e.message,'terr'); }
       }
 
       let allIt = getData('itens');
@@ -964,6 +967,21 @@ function savePedido(){
     ped={id:uid(), num, data:today(), clienteId:cli.id, clienteNome:cli.nome, clienteCNPJ:cli.cnpj, clienteCidade:cli.cidade, canal:cli.canal, contato:cli.contato, tel:cli.tel, email:cli.email, prazo:ORC.prazo, obs:ORC.frete, total:tot, comissao:com, status:ORC.status};
     peds.unshift(ped);
     setData('pedidos', peds);
+
+    // Garante que o pedido foi gravado na nuvem ANTES de salvar itens/parcelas
+    // (evita erro de chave estrangeira "pedido_itens_pedid_fkey")
+    if(sb){
+      try{
+        toast('Salvando...','tinfo');
+        const {error} = await sb.from('pedidos').upsert([denormalizePedido(ped)], {onConflict:'id'});
+        if(error) throw error;
+      }catch(e){
+        console.error('Erro ao salvar pedido na nuvem:', e);
+        toast('⚠️ Erro ao salvar pedido: '+e.message,'terr');
+        return;
+      }
+    }
+
     const allIt = getData('itens');
     itens.forEach(it=>{it.pedId=ped.id; allIt.push(it);});
     setData('itens', allIt);
